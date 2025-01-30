@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dichotic Listening Task</title>
+    <style>
+        .section {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .active {
+            display: block;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            max-width: 300px;
+            margin: 20px auto;
+        }
+        .number-btn {
+            padding: 15px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .selected {
+            background-color: lightblue;
+        }
+        #instructions {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <!-- ID Entry Section -->
+    <div id="id-entry" class="section active">
+        <h2>Enter Your Unique ID</h2>
+        <input type="text" id="user-id">
+        <button onclick="startExperiment()">Submit</button>
+    </div>
+
+    <!-- Instructions Section -->
+    <div id="instructions" class="section">
+        <h2>Instructions</h2>
+        <p>1. You will hear numbers in both ears simultaneously</p>
+        <p>2. Click all the numbers you hear in the grid below</p>
+        <p>3. You can select multiple numbers</p>
+        <p>4. Click submit when ready</p>
+        <button onclick="startTest()">Start Test</button>
+    </div>
+
+    <!-- Test Section -->
+    <div id="test-section" class="section">
+        <h2>Which numbers did you hear?</h2>
+        <div class="grid" id="number-grid"></div>
+        <button onclick="recordResponse()">Submit</button>
+    </div>
+
+    <!-- Thank You Section -->
+    <div id="thank-you" class="section">
+        <h2>Thank You!</h2>
+        <p>Your responses have been recorded.</p>
+    </div>
+
+    <script>
+        let currentQuestion = 0;
+        let no_of_questions = 1;
+        let responses = [];
+        let userId = null;
+
+        let uniqueNumbers = [];
+
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        function startExperiment() {
+            userId = document.getElementById('user-id').value;
+            // if (!userId) {
+            //     alert('Please enter a valid ID');
+            //     return;
+            // }
+            showSection('instructions');
+        }
+        
+        function startTest() {
+            showSection('test-section');
+            createNumberGrid();
+            // playAudio();
+            
+            let n_audio_trials = 3;
+            let delay_ms = 500;
+            let count = 0;
+
+            uniqueNumbers = getUniqueNumbers(n_audio_trials);
+
+            let interval = setInterval(() => {
+                playAudio(uniqueNumbers[count * 2], uniqueNumbers[count * 2 + 1]);
+                count++;
+                if (count >= n_audio_trials) {
+                    clearInterval(interval); // Stop after n times
+                }
+            }, delay_ms);
+
+        }
+
+        function createNumberGrid() {
+            const grid = document.getElementById('number-grid');
+            grid.innerHTML = '';
+            const numbers = [1,2,3,4,5,6,8,9,10];
+            
+            numbers.forEach(num => {
+                const btn = document.createElement('button');
+                btn.className = 'number-btn';
+                btn.textContent = num;
+                btn.onclick = () => btn.classList.toggle('selected');
+                grid.appendChild(btn);
+            });
+        }
+
+        function getRandomNumbers() {
+            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
+            let leftIndex = Math.floor(Math.random() * numbers.length);
+            let rightIndex;
+            do {
+                rightIndex = Math.floor(Math.random() * numbers.length);
+            } while (rightIndex === leftIndex);
+            return [numbers[leftIndex], numbers[rightIndex]];
+        }
+
+        function getUniqueNumbers(n_trials) {
+            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
+            let shuffled = numbers.sort(() => Math.random() - 0.5); // Shuffle array randomly
+            let selectedNumbers = shuffled.slice(0, n_trials * 2); // Pick first 6 unique numbers
+            return selectedNumbers;
+        }
+
+        // Function to load and decode audio
+        async function loadAudio(url) {
+            const response = await fetch(url);
+            const arrayBuffer = await response.arrayBuffer();
+            return audioContext.decodeAudioData(arrayBuffer);
+        }
+
+        async function playAudio(leftNumber, rightNumber) {
+            // let [leftNumber, rightNumber] = getRandomNumbers();
+            
+            // Load and decode both audio files
+            const leftBuffer = await loadAudio(`audio/${leftNumber}.mp3`);
+            const rightBuffer = await loadAudio(`audio/${rightNumber}.mp3`);
+
+            // Create separate sources for both channels
+            const leftSource = audioContext.createBufferSource();
+            leftSource.buffer = leftBuffer;
+
+            const rightSource = audioContext.createBufferSource();
+            rightSource.buffer = rightBuffer;
+
+            // Create stereo panner nodes
+            const leftPanner = audioContext.createStereoPanner();
+            leftPanner.pan.value = -1; // Left ear
+
+            const rightPanner = audioContext.createStereoPanner();
+            rightPanner.pan.value = 1; // Right ear
+
+            // Connect nodes to the audio context
+            leftSource.connect(leftPanner).connect(audioContext.destination);
+            rightSource.connect(rightPanner).connect(audioContext.destination);
+
+            // Start both sources simultaneously
+            leftSource.start();
+            rightSource.start();
+        }
+
+        function recordResponse() {
+            const answers = uniqueNumbers;
+            const selected = [];
+            document.querySelectorAll('.selected').forEach(btn => {
+                selected.push(parseInt(btn.textContent));
+            });
+            
+            responses.push({
+                question: currentQuestion + 1,
+                answers: uniqueNumbers.slice(currentQuestion * 2, currentQuestion * 2 + 2),
+                selected: selected,
+                timestamp: new Date().toISOString()
+            });
+
+            currentQuestion++;
+            
+            if (currentQuestion < no_of_questions) {
+                startTest();
+            } else {
+                showSection('thank-you');
+                saveDataToGoogleSheets(userId, responses);
+                saveData();
+            }
+        }
+
+        function saveData() {
+            // Replace with your actual data saving logic
+            const data = {
+                userId: userId,
+                responses: responses,
+                completedAt: new Date().toISOString()
+            };
+
+            console.log(data);
+
+            // Convert to JSON string
+            const jsonData = JSON.stringify(data, null, 2); 
+
+            // Create a Blob with JSON data
+            const blob = new Blob([jsonData], { type: "application/json" });
+
+            // Create a temporary download link
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `dichotic_listening_${userId}.json`; // Name the file
+
+            // Append, trigger click, and remove the element
+            document.body.appendChild(a);
+            // a.click();
+            document.body.removeChild(a);
+        }
+
+
+        function saveDataToGoogleSheets(userId, responses) {
+            const scriptURL = "https://script.google.com/macros/s/AKfycbxlEvcQuoK6mwAZwAXflDcJ2RoEO68afKlNvMFjYQ5znT3LpAnVggOHppZ2v1XvNhJ6/exec"; // Replace with your Web App URL
+
+            let trials = responses.map(response => {
+                let leftStimulus = response.answers[0];
+                let rightStimulus = response.answers[1];
+                let responseStr = response.selected.join(","); // Convert selected responses to a string
+
+                let correctLeft = response.selected.filter(num => num == leftStimulus).length;
+                let correctRight = response.selected.filter(num => num == rightStimulus).length;
+
+                return {
+                    left: leftStimulus,
+                    right: rightStimulus,
+                    responses: responseStr,
+                    correctLeft: correctLeft,
+                    correctRight: correctRight
+                };
+            });
+
+            const data = { userId: userId, trials: trials };
+
+            fetch(scriptURL, {
+                method: "POST",
+                body: JSON.stringify(data),
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*"
+                },
+            })
+            .then(response => console.log("Data sent to Google Sheets"))
+            .catch(error => console.error("Error:", error));
+        }
+
+
+
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(div => {
+                div.classList.remove('active');
+            });
+            document.getElementById(sectionId).classList.add('active');
+        }
+    </script>
+</body>
+</html>
