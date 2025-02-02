@@ -68,7 +68,7 @@
 
     <script>
         let currentQuestion = 0;
-        let no_of_questions = 1;
+        let no_of_questions = 20;
         let responses = [];
         let userId = null;
 
@@ -180,10 +180,9 @@
             document.querySelectorAll('.selected').forEach(btn => {
                 selected.push(parseInt(btn.textContent));
             });
-            
             responses.push({
                 question: currentQuestion + 1,
-                answers: uniqueNumbers.slice(currentQuestion * 2, currentQuestion * 2 + 2),
+                answers: [uniqueNumbers.filter((_, index) => index % 2 === 0), uniqueNumbers.filter((_, index) => index % 2 !== 0)],
                 selected: selected,
                 timestamp: new Date().toISOString()
             });
@@ -222,7 +221,7 @@
 
             // Append, trigger click, and remove the element
             document.body.appendChild(a);
-            // a.click();
+            a.click();
             document.body.removeChild(a);
         }
 
@@ -231,12 +230,17 @@
             const scriptURL = "https://script.google.com/macros/s/AKfycbxlEvcQuoK6mwAZwAXflDcJ2RoEO68afKlNvMFjYQ5znT3LpAnVggOHppZ2v1XvNhJ6/exec"; // Replace with your Web App URL
 
             let trials = responses.map(response => {
-                let leftStimulus = response.answers[0];
-                let rightStimulus = response.answers[1];
-                let responseStr = response.selected.join(","); // Convert selected responses to a string
+                let leftStimulus = response.answers[0].join(",");
+                let rightStimulus = response.answers[1].join(",");
+                let responseStr = response.selected.join(","); 
 
-                let correctLeft = response.selected.filter(num => num == leftStimulus).length;
-                let correctRight = response.selected.filter(num => num == rightStimulus).length;
+                let leftStimulusArr = response.answers[0];
+                let rightStimulusArr = response.answers[1];
+                let selectedArr = response.selected;
+
+                let correctLeft = leftStimulusArr.filter(num => selectedArr.includes(num)).length;
+                
+                let correctRight = rightStimulusArr.filter(num => selectedArr.includes(num)).length;
 
                 return {
                     left: leftStimulus,
@@ -253,6 +257,7 @@
                 redirect: "follow",
                 method: "POST",
                 body: JSON.stringify(data),
+                mode: "no-cors",
                 headers: { 
                     "Content-Type": "text/plain;charset=utf-8",
                     "Access-Control-Allow-Origin": "*"
