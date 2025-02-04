@@ -33,6 +33,10 @@
             margin: 0 auto;
             text-align: left;
         }
+        .disabled {
+            pointer-events: none;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -50,14 +54,27 @@
         <p>2. Click all the numbers you hear in the grid below</p>
         <p>3. You can select multiple numbers</p>
         <p>4. Click submit when ready</p>
-        <button onclick="startTest()">Start Test</button>
+        <p>5. You will attempt a trial of 3 questions first</p>
+        <button onclick="showSection('pre-trial')">Proceed to Trial</button>
+    </div>
+
+    <div id="pre-trial" class="section">
+        <h2>Trial Round</h2>
+        <p>Try these 3 trial questions before the real test begins.</p>
+        <button onclick="startTest(true)">Start Trial</button>
+    </div>
+
+    <div id="post-trial" class="section">
+        <h2>Trial Completed</h2>
+        <p>Great! Now you will proceed to the actual experiment.</p>
+        <button onclick="startTest(false)">Start Experiment</button>
     </div>
 
     <!-- Test Section -->
     <div id="test-section" class="section">
         <h2>Which numbers did you hear?</h2>
         <div class="grid" id="number-grid"></div>
-        <button onclick="recordResponse()">Submit</button>
+        <button id="submit-btn" onclick="recordResponse()">Submit</button>
     </div>
 
     <!-- Thank You Section -->
@@ -68,48 +85,119 @@
 
     <script>
         let currentQuestion = 0;
-        let no_of_questions = 20;
+        const no_of_questions = 20;
+        const no_of_trials = 3;
+        const no_of_audio_per_question = 3;
+        let isTrialMode = false;
+        const delay = 500;
         let responses = [];
         let userId = null;
-
-        let uniqueNumbers = [];
-
+        let trials = [];
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const audioBuffers = new Map();
+        const audio_duration = 300;
+        let question_audio_duration = (no_of_audio_per_question - 1) * delay + audio_duration;
+
+        // Preload all audio files
+        window.addEventListener('load', async () => {
+            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
+            for (const num of numbers) {
+                const buffer = await loadAudio(`audio/${num}.mp3`);
+                audioBuffers.set(num, buffer);
+            }
+            // generateTrials();
+        });
+
+        // Modified disableButtons function
+        function disableButtons(state) {
+            const submitBtn = document.getElementById("submit-btn");
+            if (submitBtn) {
+                submitBtn.classList.toggle("disabled", state);
+                submitBtn.disabled = state;
+            }
+            document.querySelectorAll(".number-btn").forEach(btn => {
+                btn.disabled = state;
+            });
+        }
+
+        function generateTrials(isTrial) {
+            const combinations = [];
+            const allNumbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
+            let normalTrials = [];
+            let reversedTrials = [];
+
+            let no_of_combinations_to_generate = no_of_questions
+            if (isTrial) {
+                no_of_combinations_to_generate = no_of_trials*2
+            }
+            
+            while (combinations.length < (no_of_combinations_to_generate/2)) {
+                const shuffled = [...allNumbers].sort(() => Math.random() - 0.5);
+                const combo = shuffled.slice(0, no_of_audio_per_question*2);
+                const comboKey = combo.sort().join(',');
+                
+                if (!combinations.some(c => c.sort().join(',') === comboKey)) {
+                    combinations.push(combo);
+                }
+            }
+
+            // Create questions with original and reversed versions
+            combinations.forEach(combo => {
+                const shuffledCombo = [...combo].sort(() => Math.random() - 0.5);
+                const groupA = shuffledCombo.slice(0, no_of_audio_per_question);
+                const groupB = shuffledCombo.slice(no_of_audio_per_question, no_of_audio_per_question*2);
+                
+                // Store normal questions first
+                normalTrials.push({ left: groupA, right: groupB });
+
+                // Store reversed questions separately
+                reversedTrials.push({ left: groupB, right: groupA });
+            });
+
+            // Concatenate normal trials first, then reversed trials
+            trials = normalTrials.concat(reversedTrials);
+            // console.log("generateTrials() ran")
+            // console.log(trials)
+        }
 
         function startExperiment() {
             userId = document.getElementById('user-id').value;
-            // if (!userId) {
-            //     alert('Please enter a valid ID');
-            //     return;
-            // }
             showSection('instructions');
         }
-        
-        function startTest() {
-            showSection('test-section');
-            createNumberGrid();
-            // playAudio();
+
+        function startTest(isTrial) {
+            audioContext.resume().then(() => {
+                isTrialMode = isTrial;
+                generateTrials(isTrial);
+                currentQuestion = 0;
+                showSection('test-section');
+                createNumberGrid();
+                playCurrentQuestion();
+            });
+        }
+
+        async function playCurrentQuestion() {
+            disableButtons(true);
+            const currentTrial = trials[currentQuestion];
+
+            console.log(currentTrial);
             
-            let n_audio_trials = 3;
-            let delay_ms = 500;
-            let count = 0;
+            currentTrial.left.forEach((leftNum, index) => {
+                setTimeout(async () => {
+                    await playAudio(leftNum, currentTrial.right[index]);
+                    resolve();
+                }, index * delay);
+            });
 
-            uniqueNumbers = getUniqueNumbers(n_audio_trials);
-
-            let interval = setInterval(() => {
-                playAudio(uniqueNumbers[count * 2], uniqueNumbers[count * 2 + 1]);
-                count++;
-                if (count >= n_audio_trials) {
-                    clearInterval(interval); // Stop after n times
-                }
-            }, delay_ms);
-
+            setTimeout(() => {
+                disableButtons(false);
+            }, question_audio_duration);
         }
 
         function createNumberGrid() {
             const grid = document.getElementById('number-grid');
             grid.innerHTML = '';
-            const numbers = [1,2,3,4,5,6,8,9,10];
+            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
             
             numbers.forEach(num => {
                 const btn = document.createElement('button');
@@ -120,86 +208,73 @@
             });
         }
 
-        function getRandomNumbers() {
-            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
-            let leftIndex = Math.floor(Math.random() * numbers.length);
-            let rightIndex;
-            do {
-                rightIndex = Math.floor(Math.random() * numbers.length);
-            } while (rightIndex === leftIndex);
-            return [numbers[leftIndex], numbers[rightIndex]];
-        }
-
-        function getUniqueNumbers(n_trials) {
-            const numbers = [1, 2, 3, 4, 5, 6, 8, 9, 10];
-            let shuffled = numbers.sort(() => Math.random() - 0.5); // Shuffle array randomly
-            let selectedNumbers = shuffled.slice(0, n_trials * 2); // Pick first 6 unique numbers
-            return selectedNumbers;
-        }
-
-        // Function to load and decode audio
         async function loadAudio(url) {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
             return audioContext.decodeAudioData(arrayBuffer);
         }
 
-        async function playAudio(leftNumber, rightNumber) {
-            // let [leftNumber, rightNumber] = getRandomNumbers();
-            
-            // Load and decode both audio files
-            const leftBuffer = await loadAudio(`audio/${leftNumber}.mp3`);
-            const rightBuffer = await loadAudio(`audio/${rightNumber}.mp3`);
+        function playAudio(leftNumber, rightNumber) {
+            return new Promise((resolve) => {
+                const leftBuffer = audioBuffers.get(leftNumber);
+                const rightBuffer = audioBuffers.get(rightNumber);
 
-            // Create separate sources for both channels
-            const leftSource = audioContext.createBufferSource();
-            leftSource.buffer = leftBuffer;
+                const leftSource = audioContext.createBufferSource();
+                leftSource.buffer = leftBuffer;
+                const rightSource = audioContext.createBufferSource();
+                rightSource.buffer = rightBuffer;
 
-            const rightSource = audioContext.createBufferSource();
-            rightSource.buffer = rightBuffer;
+                const leftPanner = audioContext.createStereoPanner();
+                leftPanner.pan.value = -1;
+                const rightPanner = audioContext.createStereoPanner();
+                rightPanner.pan.value = 1;
 
-            // Create stereo panner nodes
-            const leftPanner = audioContext.createStereoPanner();
-            leftPanner.pan.value = -1; // Left ear
+                leftSource.connect(leftPanner).connect(audioContext.destination);
+                rightSource.connect(rightPanner).connect(audioContext.destination);
 
-            const rightPanner = audioContext.createStereoPanner();
-            rightPanner.pan.value = 1; // Right ear
-
-            // Connect nodes to the audio context
-            leftSource.connect(leftPanner).connect(audioContext.destination);
-            rightSource.connect(rightPanner).connect(audioContext.destination);
-
-            // Start both sources simultaneously
-            leftSource.start();
-            rightSource.start();
+                leftSource.start();
+                rightSource.start();
+            });
         }
 
         function recordResponse() {
-            const answers = uniqueNumbers;
-            const selected = [];
-            document.querySelectorAll('.selected').forEach(btn => {
-                selected.push(parseInt(btn.textContent));
-            });
-            responses.push({
-                question: currentQuestion + 1,
-                answers: [uniqueNumbers.filter((_, index) => index % 2 === 0), uniqueNumbers.filter((_, index) => index % 2 !== 0)],
-                selected: selected,
-                timestamp: new Date().toISOString()
-            });
+            const currentTrial = trials[currentQuestion];
+            
+            const selected = Array.from(document.querySelectorAll('.selected'))
+                                .map(btn => parseInt(btn.textContent));
+
+            if (!isTrialMode) {
+                responses.push({
+                    question: currentQuestion + 1,
+                    answers: [currentTrial.left, currentTrial.right],
+                    selected: selected,
+                    timestamp: new Date().toISOString()
+                });
+                // console.log(responses)
+            }
 
             currentQuestion++;
-            
-            if (currentQuestion < no_of_questions) {
-                startTest();
+
+            if (isTrialMode) {
+                if (currentQuestion < no_of_trials) {
+                    createNumberGrid();
+                    playCurrentQuestion();
+                } else {
+                    showSection('post-trial');
+                }
             } else {
-                showSection('thank-you');
-                saveDataToGoogleSheets(userId, responses);
-                saveData();
+                if ((currentQuestion < no_of_questions)) {
+                    createNumberGrid();
+                    playCurrentQuestion();
+                } else {
+                    showSection('thank-you');
+                    saveDataToGoogleSheets(userId, responses);
+                    saveData();
+                }
             }
         }
 
         function saveData() {
-            // Replace with your actual data saving logic
             const data = {
                 userId: userId,
                 responses: responses,
@@ -229,6 +304,9 @@
         function saveDataToGoogleSheets(userId, responses) {
             const scriptURL = "https://script.google.com/macros/s/AKfycbxlEvcQuoK6mwAZwAXflDcJ2RoEO68afKlNvMFjYQ5znT3LpAnVggOHppZ2v1XvNhJ6/exec"; // Replace with your Web App URL
 
+            let total_correct_left = 0;
+            let total_correct_right = 0;
+
             let trials = responses.map(response => {
                 let leftStimulus = response.answers[0].join(",");
                 let rightStimulus = response.answers[1].join(",");
@@ -239,8 +317,10 @@
                 let selectedArr = response.selected;
 
                 let correctLeft = leftStimulusArr.filter(num => selectedArr.includes(num)).length;
+                total_correct_left += correctLeft;
                 
                 let correctRight = rightStimulusArr.filter(num => selectedArr.includes(num)).length;
+                total_correct_right += correctRight;
 
                 return {
                     left: leftStimulus,
@@ -251,7 +331,7 @@
                 };
             });
 
-            const data = { userId: userId, trials: trials };
+            const data = { userId: userId, trials: trials, total: [total_correct_left, total_correct_right] };
 
             fetch(scriptURL, {
                 redirect: "follow",
@@ -266,8 +346,6 @@
             .then(response => console.log("Data sent to Google Sheets"))
             .catch(error => console.error("Error:", error));
         }
-
-
 
         function showSection(sectionId) {
             document.querySelectorAll('.section').forEach(div => {
